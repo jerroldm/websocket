@@ -11,6 +11,8 @@
 #include "sim7670g_modem.h"
 #include "websocket_client.h"
 
+#include "config.h"
+
 static const char *TAG = "MAIN";
 
 // Network configuration Defines
@@ -27,19 +29,6 @@ static const char *TAG = "MAIN";
 // UART buffer size
 #define UART_BUF_SIZE 2048
 #define AT_RESPONSE_TIMEOUT_MS 10000
-
-// Hardware pin definitions for WAVESHARE_ESP32_S3_SIM7670G
-#define MODEM_BAUD_RATE         115200
-#define MODEM_DTR_PIN           45
-#define MODEM_TX_PIN            18
-#define MODEM_RX_PIN            17
-#define MODEM_RTS_PIN           -1      // -1 = Disable
-#define MODEM_CTS_PIN           -1      // -1 = Disable
-#define MODEM_PWRKEY_PIN        -1      // -1 = Disable or 4
-#define MODEM_POWER_PIN         -1      // -1 = Disable or 12
-#define MODEM_RESET_PIN         -1      // -1 = Disable or 5
-#define MODEM_RESET_LEVEL       1
-
 
 // UART configuration
 #define MODEM_UART_PORT         UART_NUM_1
@@ -395,6 +384,8 @@ static void sensor_task(void *pvParameters)
 //----------------------------------------
 void app_main(void)
 {
+    ESP_LOGI(TAG, "🚀 %s", BOARD_NAME);
+
     ESP_LOGI(TAG, "🚀 ESP32 WebSocket Client with SIM7670G Starting...");
 
     // Initialize NVS (required for some ESP-IDF components)
