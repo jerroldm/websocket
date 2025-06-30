@@ -1,0 +1,128 @@
+# ESP32 WebSocket Client with SIM7670G
+
+A WebSocket client implementation for ESP32 using SIM7670G cellular modem, built with ESP-IDF.
+
+## Features
+
+- ✅ WebSocket client with RFC 6455 compliance
+- ✅ Proper frame masking for client-to-server communication
+- ✅ Cellular connectivity via SIM7670G modem
+- ✅ Support for text and binary WebSocket frames
+- ✅ Automatic connection management and retry logic
+- ✅ JSON status reporting
+- ✅ Ping/pong frame handling
+
+## Hardware Requirements
+
+- ESP32-S3 development board
+- SIM7670G cellular modem module
+- Active SIM card with data plan
+
+## Software Requirements
+
+- ESP-IDF v5.0 or later
+- CMake build system
+
+## Project Structure
+
+```
+├── main/
+│   ├── main.c                    # Main application entry point
+│   ├── websocket_client.c        # WebSocket protocol implementation
+│   ├── websocket_client.h        # WebSocket client header
+│   ├── sim7670g_modem.c          # SIM7670G modem driver
+│   ├── sim7670g_modem.h          # SIM7670G modem header
+│   ├── modem_tcp_interface.c     # TCP abstraction layer
+│   ├── modem_tcp_interface.h     # TCP interface header
+│   └── CMakeLists.txt
+├── CMakeLists.txt
+├── sdkconfig.defaults
+└── README.md
+```
+
+## Key Components
+
+### WebSocket Client (`websocket_client.c`)
+- Implements WebSocket handshake
+- Creates properly masked WebSocket frames
+- Handles frame parsing and message processing
+- Supports text and binary message types
+
+### SIM7670G Modem Driver (`sim7670g_modem.c`)
+- AT command interface for SIM7670G
+- TCP connection management
+- Data send/receive operations
+- Connection status monitoring
+
+### TCP Interface Layer (`modem_tcp_interface.c`)
+- Abstraction layer between WebSocket and modem
+- Simplifies TCP operations
+- Provides clean API for higher-level protocols
+
+## Configuration
+
+1. Configure WiFi credentials (if using WiFi fallback)
+2. Set cellular APN settings for your carrier
+3. Configure WebSocket server URL and port
+4. Adjust buffer sizes and timeouts as needed
+
+## Building and Flashing
+
+```bash
+# Configure the project
+idf.py menuconfig
+
+# Build the project
+idf.py build
+
+# Flash to device
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+## Usage
+
+The device will:
+1. Initialize the SIM7670G modem
+2. Connect to cellular network
+3. Establish WebSocket connection to configured server
+4. Send periodic status messages
+5. Handle incoming WebSocket frames
+6. Maintain connection with ping/pong frames
+
+## WebSocket Frame Format
+
+The implementation follows RFC 6455 WebSocket standard:
+- All client frames are properly masked
+- Supports text (opcode 0x01) and binary (opcode 0x02) frames
+- Handles ping (opcode 0x09) and pong (opcode 0x0A) frames
+- Proper connection close handling
+
+## Debug Output
+
+Enable debug logging to see detailed WebSocket communication:
+- Frame construction and masking
+- TCP send/receive operations
+- Connection status updates
+- Error handling and retry logic
+
+## Troubleshooting
+
+### Common Issues
+1. **MASK must be set**: Ensure WebSocket frames are properly masked
+2. **TCP connection errors**: Check cellular signal and APN settings
+3. **Handshake failures**: Verify WebSocket server URL and protocol
+4. **Memory issues**: Adjust buffer sizes in configuration
+
+### Debug Tips
+- Monitor UART output for detailed logs
+- Use WebSocket test server for development
+- Check cellular signal strength and data connectivity
+- Verify SIM card data plan and APN settings
+
+## License
+
+This project is provided as-is for educational and development purposes.
+
+## Contributing
+
+Feel free to submit issues and enhancement requests!
