@@ -10,6 +10,7 @@
 #include "esp_random.h"
 #include "sim7670g_modem.h"
 #include "websocket_client.h"
+#include "manage_time.h"
 
 #include "config.h"
 
@@ -301,6 +302,51 @@ static void websocket_task(void *pvParameters)
     }
 
     // Main WebSocket processing loop
+//    int message_counter = 0;
+    while (1) {
+/*
+        // Process WebSocket events
+        websocket_client_process();
+
+        // Send periodic data every 30 seconds
+        static uint64_t last_periodic_message = 0;
+        uint64_t now = esp_timer_get_time() / 1000000; // Convert to seconds
+
+        if (websocket_client_is_connected() && (now - last_periodic_message) >= 30) {
+            // Get current modem status
+            sim7670g_status_t modem_status;
+            sim7670g_get_status(&modem_status);
+
+            char periodic_msg[400];
+            snprintf(periodic_msg, sizeof(periodic_msg), 
+                    "{\"type\":\"status\",\"counter\":%d,\"uptime\":%lld,"
+                    "\"free_heap\":%lu,\"signal_quality\":%d,\"local_ip\":\"%s\","
+                    "\"operator\":\"%s\"}", 
+                    ++message_counter, now, esp_get_free_heap_size(),
+                    modem_status.signal_quality, modem_status.local_ip,
+                    modem_status.operator_name);
+
+            prepend_friendly_timestamp(periodic_msg, sizeof(periodic_msg));
+            websocket_client_send_text(periodic_msg, 0);
+            last_periodic_message = now;
+            ESP_LOGI(TAG, "📤 Sent status message #%d", message_counter);
+        }
+        vTaskDelay(pdMS_TO_TICKS(100)); // 100ms loop
+*/
+        vTaskDelete(NULL);   // Task terminates
+    }
+}
+//----------------------------------------
+
+
+//----------------------------------------
+// Status Task
+//----------------------------------------
+static void status_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "🔗 Starting status task...");
+
+    // Main WebSocket processing loop
     int message_counter = 0;
     while (1) {
         // Process WebSocket events
@@ -324,12 +370,14 @@ static void websocket_task(void *pvParameters)
                     modem_status.signal_quality, modem_status.local_ip,
                     modem_status.operator_name);
 
+            prepend_friendly_timestamp(periodic_msg, sizeof(periodic_msg));
             websocket_client_send_text(periodic_msg, 0);
             last_periodic_message = now;
             ESP_LOGI(TAG, "📤 Sent status message #%d", message_counter);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(100)); // 100ms loop
+        vTaskDelay(pdMS_TO_TICKS(10000)); // Send status data every 10 seconds
+
     }
 }
 //----------------------------------------
@@ -364,16 +412,60 @@ static void sensor_task(void *pvParameters)
             char sensor_data[300];
             snprintf(sensor_data, sizeof(sensor_data),
                     "{\"type\":\"sensor_data\",\"reading\":%d,\"temperature\":%.1f,"
-                    "\"humidity\":%.1f,\"timestamp\":%lld}",
-                    sensor_reading_count, temperature, humidity,
-                    esp_timer_get_time() / 1000000);
+                    "\"humidity\":%.1f}",
+                    sensor_reading_count, temperature, humidity);
 
+            prepend_friendly_timestamp(sensor_data, sizeof(sensor_data));
             websocket_client_send_text(sensor_data, 0);
             ESP_LOGI(TAG, "📊 Sent sensor data: T=%.1f°C, H=%.1f%%, Reading #%d",
                     temperature, humidity, sensor_reading_count);
         }
 
         vTaskDelay(pdMS_TO_TICKS(20000)); // Send sensor data every 20 seconds
+    }
+}
+//----------------------------------------
+
+
+//----------------------------------------
+// Demonstrate Time Functions
+//----------------------------------------
+void demonstrate_time_functions(void)
+{
+    ESP_LOGI("TIME_DEMO", "=== Time Functionality Demo ===");
+    
+    // 1. Get current RTC time
+    sim7670g_time_t current_time;
+    if (sim7670g_get_rtc_time(&current_time) == ESP_OK) {
+        ESP_LOGI("TIME_DEMO", "Current RTC time: %04d-%02d-%02d %02d:%02d:%02d (TZ: %+d)",
+                 current_time.year, current_time.month, current_time.day,
+                 current_time.hour, current_time.minute, current_time.second,
+                 current_time.timezone_quarters);
+    }
+    
+    // 2. Get formatted time strings
+    char time_buffer[64];
+    
+    // ISO format
+    if (sim7670g_get_time_string(time_buffer, sizeof(time_buffer), "%Y-%m-%dT%H:%M:%SZ") == ESP_OK) {
+        ESP_LOGI("TIME_DEMO", "ISO format: %s", time_buffer);
+    }
+    
+    // Human readable
+    if (sim7670g_get_time_string(time_buffer, sizeof(time_buffer), "%A, %B %d, %Y at %I:%M %p") == ESP_OK) {
+        ESP_LOGI("TIME_DEMO", "Human readable: %s", time_buffer);
+    }
+    
+    // 3. Convert to Unix timestamp
+    time_t unix_timestamp = sim7670g_time_to_unix(&current_time);
+    ESP_LOGI("TIME_DEMO", "Unix timestamp: %lld", unix_timestamp);
+    
+    // 4. Sync with network (manual)
+    ESP_LOGI("TIME_DEMO", "Performing manual time sync...");
+    if (sim7670g_sync_time_from_network() == ESP_OK) {
+        ESP_LOGI("TIME_DEMO", "✅ Manual sync successful");
+    } else {
+        ESP_LOGE("TIME_DEMO", "❌ Manual sync failed");
     }
 }
 //----------------------------------------
@@ -406,18 +498,32 @@ void app_main(void)
     ESP_LOGI(TAG, "⏳ Waiting for cellular initialization...");
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-    ESP_LOGI(TAG, "✅ Cellular ready - starting WebSocket services");
-
+    ESP_LOGI("MAIN", "🎉 Cellular initialization complete!");
+    ESP_LOGI("MAIN", "✅ Cellular ready - starting Time Synchronization");
+    
+    // Start time sync in separate task with adequate stack
+    xTaskCreate(time_sync_task, "time_startup", 4096, NULL, 5, NULL);
+    
     // Create WebSocket management task
+    ESP_LOGI("MAIN", "🔗 Starting WebSocket task...");
     xTaskCreate(websocket_task, "websocket_task", 8192, NULL, 5, NULL);
+
+    // Create status task
+    xTaskCreate(status_task, "status_task", 8192, NULL, 3, NULL);
 
     // Create sensor data task
     xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 3, NULL);
 
     ESP_LOGI(TAG, "🎉 All tasks started - WebSocket client running");
 
+    //simple_time_debug();
+    //test_network_vs_rtc_time();
+
     // Main monitoring loop
     while (1) {
+        // Print out the time
+        demonstrate_time_functions();
+
         // Monitor system health
         sim7670g_status_t modem_status;
         esp_err_t status_ret = sim7670g_get_status(&modem_status);

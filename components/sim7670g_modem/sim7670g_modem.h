@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <time.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -310,5 +311,72 @@ bool sim7670g_https_end(void);
 #ifdef __cplusplus
 }
 #endif
+
+// Time structure for SIM7670G
+typedef struct {
+    int year;
+    int month;
+    int day;
+    int hour;
+    int minute;
+    int second;
+    int timezone_quarters; // Timezone in quarters of an hour (e.g., +8 hours = +32)
+} sim7670g_time_t;
+
+/**
+ * @brief Check if the modem is initialized
+ * @return true if initialized, false otherwise
+ */
+bool sim7670g_is_initialized(void);
+
+/**
+ * @brief Get network time from cellular provider
+ * @param network_time Pointer to store the retrieved network time
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t sim7670g_get_network_time(sim7670g_time_t *network_time);
+
+/**
+ * @brief Set the internal RTC time
+ * @param time_info Time structure to set
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t sim7670g_set_rtc_time(const sim7670g_time_t *time_info);
+
+/**
+ * @brief Get the current RTC time
+ * @param time_info Pointer to store the current RTC time
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t sim7670g_get_rtc_time(sim7670g_time_t *time_info);
+
+/**
+ * @brief Synchronize RTC with network time
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t sim7670g_sync_time_from_network(void);
+
+/**
+ * @brief Convert SIM7670G time to Unix timestamp
+ * @param sim_time SIM7670G time structure
+ * @return Unix timestamp (seconds since epoch)
+ */
+time_t sim7670g_time_to_unix(const sim7670g_time_t *sim_time);
+
+/**
+ * @brief Convert Unix timestamp to SIM7670G time
+ * @param unix_time Unix timestamp
+ * @param sim_time Pointer to store converted time
+ */
+void unix_to_sim7670g_time(time_t unix_time, sim7670g_time_t *sim_time);
+
+/**
+ * @brief Get current time as formatted string
+ * @param buffer Buffer to store formatted time string
+ * @param buffer_size Size of the buffer
+ * @param format Format string (strftime compatible)
+ * @return ESP_OK on success, error code on failure
+ */
+esp_err_t sim7670g_get_time_string(char *buffer, size_t buffer_size, const char *format);
 
 #endif // SIM7670G_MODEM_H

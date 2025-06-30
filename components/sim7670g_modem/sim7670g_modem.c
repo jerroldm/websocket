@@ -674,7 +674,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
         TickType_t start_time = xTaskGetTickCount();
         memset(prompt_buffer, 0, sizeof(prompt_buffer));
         size_t prompt_total = 0;
-        
+
         while ((xTaskGetTickCount() - start_time) < pdMS_TO_TICKS(3000)) {
             bytes_read = uart_read_bytes(modem_state.config.uart_port,
                                          (uint8_t*)(prompt_buffer + prompt_total),
@@ -684,7 +684,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
                 prompt_total += bytes_read;
                 prompt_buffer[prompt_total] = '\0';
                 ESP_LOGI(TAG, "UART received: %s", prompt_buffer);
-                
+
                 if (strstr(prompt_buffer, "ERROR")) {
                     ESP_LOGE(TAG, "Modem returned ERROR for CIPSEND");
                     break;
@@ -704,7 +704,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
 
         // Send the data (raw binary for WebSocket frames)
         ESP_LOGI(TAG, "Sending data (%zu bytes) - %s", length, has_binary ? "binary" : "text");
-        
+
         // Log first few bytes for debugging
         if (length >= 16) {
             ESP_LOGI(TAG, "First 16 bytes: %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
@@ -713,7 +713,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
                      (uint8_t)data[8], (uint8_t)data[9], (uint8_t)data[10], (uint8_t)data[11],
                      (uint8_t)data[12], (uint8_t)data[13], (uint8_t)data[14], (uint8_t)data[15]);
         }
-        
+
         int bytes_written = uart_write_bytes(modem_state.config.uart_port, data, length);
         if (bytes_written != length) {
             ESP_LOGE(TAG, "Failed to send all data bytes: %d/%zu", bytes_written, length);
@@ -734,7 +734,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
                                          pdMS_TO_TICKS(100));
             if (bytes_read > 0) {
                 total_read += bytes_read;
-                
+
                 // Look for "SEND OK" pattern in binary response
                 for (size_t i = 0; i <= total_read - 7; i++) {
                     if (memcmp(&at_response_buffer[i], "SEND OK", 7) == 0) {
@@ -744,7 +744,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
                         goto response_done;
                     }
                 }
-                
+
                 // Look for +CIPSEND: pattern
                 for (size_t i = 0; i <= total_read - 9; i++) {
                     if (memcmp(&at_response_buffer[i], "+CIPSEND:", 9) == 0) {
@@ -754,7 +754,7 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
                         goto response_done;
                     }
                 }
-                
+
                 // Look for ERROR pattern
                 for (size_t i = 0; i <= total_read - 5; i++) {
                     if (memcmp(&at_response_buffer[i], "ERROR", 5) == 0) {
@@ -762,13 +762,13 @@ esp_err_t sim7670g_tcp_send(const char *data, size_t length)
                         goto response_done;
                     }
                 }
-                
+
                 // Log response as hex for debugging (don't try to print as string)
                 if (total_read >= 8) {
-                    ESP_LOGD(TAG, "Response bytes: %02x %02x %02x %02x %02x %02x %02x %02x...", 
-                             (uint8_t)at_response_buffer[0], (uint8_t)at_response_buffer[1], 
+                    ESP_LOGD(TAG, "Response bytes: %02x %02x %02x %02x %02x %02x %02x %02x...",
+                             (uint8_t)at_response_buffer[0], (uint8_t)at_response_buffer[1],
                              (uint8_t)at_response_buffer[2], (uint8_t)at_response_buffer[3],
-                             (uint8_t)at_response_buffer[4], (uint8_t)at_response_buffer[5], 
+                             (uint8_t)at_response_buffer[4], (uint8_t)at_response_buffer[5],
                              (uint8_t)at_response_buffer[6], (uint8_t)at_response_buffer[7]);
                 }
             }
@@ -1064,4 +1064,251 @@ static bool wait_for_response(const char *expected, int timeout_ms)
 static void modem_uart_flush_input(void)
 {
     uart_flush_input(modem_state.config.uart_port);
+}
+
+//----------------------------------------
+// Network time related functions
+//----------------------------------------
+bool sim7670g_is_initialized(void)
+{
+    return modem_state.initialized;
+}
+
+esp_err_t sim7670g_get_network_time(sim7670g_time_t *network_time)
+{
+    if (!network_time) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(modem_state.uart_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to take UART mutex for network time");
+        return ESP_FAIL;
+    }
+
+    // Clear response buffer
+    memset(at_response_buffer, 0, sizeof(at_response_buffer));
+
+    // Send AT+CCLK? to get network time
+    const char *cmd = "AT+CCLK?\r\n";
+    uart_flush(modem_state.config.uart_port);
+    uart_write_bytes(modem_state.config.uart_port, cmd, strlen(cmd));
+
+    // Wait for response
+    esp_err_t result = ESP_FAIL;
+    TickType_t start_time = xTaskGetTickCount();
+    size_t total_read = 0;
+
+    while ((xTaskGetTickCount() - start_time) < pdMS_TO_TICKS(10000) &&
+           total_read < (sizeof(at_response_buffer) - 1)) {
+        int bytes_read = uart_read_bytes(modem_state.config.uart_port,
+                                         (uint8_t*)(at_response_buffer + total_read),
+                                         sizeof(at_response_buffer) - total_read - 1,
+                                         pdMS_TO_TICKS(100));
+        if (bytes_read > 0) {
+            total_read += bytes_read;
+            at_response_buffer[total_read] = '\0';
+
+            // Look for +CCLK: response
+            char *cclk_pos = strstr(at_response_buffer, "+CCLK:");
+            if (cclk_pos && strstr(at_response_buffer, "OK")) {
+                // Parse time string: +CCLK: "YY/MM/DD,HH:MM:SS±ZZ"
+                char time_str[32];
+                if (sscanf(cclk_pos, "+CCLK: \"%31[^\"]\"", time_str) == 1) {
+                    ESP_LOGI(TAG, "Network time string: %s", time_str);
+
+                    // Parse the time components
+                    int year, month, day, hour, minute, second, tz_sign, tz_quarters;
+                    char tz_char;
+
+                    if (sscanf(time_str, "%d/%d/%d,%d:%d:%d%c%d",
+                              &year, &month, &day, &hour, &minute, &second, &tz_char, &tz_quarters) == 8) {
+
+                        // Convert 2-digit year to 4-digit (assuming 20xx)
+                        if (year < 100) {
+                            year += 2000;
+                        }
+
+                        network_time->year = year;
+                        network_time->month = month;
+                        network_time->day = day;
+                        network_time->hour = hour;
+                        network_time->minute = minute;
+                        network_time->second = second;
+                        network_time->timezone_quarters = (tz_char == '-') ? -tz_quarters : tz_quarters;
+
+                        ESP_LOGI(TAG, "Parsed network time: %04d-%02d-%02d %02d:%02d:%02d (TZ: %+d quarters)",
+                                network_time->year, network_time->month, network_time->day,
+                                network_time->hour, network_time->minute, network_time->second,
+                                network_time->timezone_quarters);
+
+                        result = ESP_OK;
+                        break;
+                    } else {
+                        ESP_LOGE(TAG, "Failed to parse time string: %s", time_str);
+                    }
+                } else {
+                    ESP_LOGE(TAG, "Failed to extract time string from response");
+                }
+                break;
+            }
+        }
+    }
+
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get network time. Response: %s", at_response_buffer);
+    }
+
+    xSemaphoreGive(modem_state.uart_mutex);
+    return result;
+}
+
+esp_err_t sim7670g_set_rtc_time(const sim7670g_time_t *time_info)
+{
+    if (!time_info) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    if (xSemaphoreTake(modem_state.uart_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to take UART mutex for RTC set");
+        return ESP_FAIL;
+    }
+
+    // Format: AT+CCLK="YY/MM/DD,HH:MM:SS±ZZ"
+    char cmd[64];
+    int year_2digit = time_info->year % 100;
+    char tz_sign = (time_info->timezone_quarters >= 0) ? '+' : '-';
+    int tz_abs = abs(time_info->timezone_quarters);
+
+    snprintf(cmd, sizeof(cmd), "AT+CCLK=\"%02d/%02d/%02d,%02d:%02d:%02d%c%02d\"\r\n",
+             year_2digit, time_info->month, time_info->day,
+             time_info->hour, time_info->minute, time_info->second,
+             tz_sign, tz_abs);
+
+    ESP_LOGI(TAG, "Setting RTC time: %s", cmd);
+
+    // Clear response buffer
+    memset(at_response_buffer, 0, sizeof(at_response_buffer));
+
+    uart_flush(modem_state.config.uart_port);
+    uart_write_bytes(modem_state.config.uart_port, cmd, strlen(cmd));
+
+    // Wait for OK response
+    esp_err_t result = ESP_FAIL;
+    TickType_t start_time = xTaskGetTickCount();
+    size_t total_read = 0;
+
+    while ((xTaskGetTickCount() - start_time) < pdMS_TO_TICKS(5000) &&
+           total_read < (sizeof(at_response_buffer) - 1)) {
+        int bytes_read = uart_read_bytes(modem_state.config.uart_port,
+                                         (uint8_t*)(at_response_buffer + total_read),
+                                         sizeof(at_response_buffer) - total_read - 1,
+                                         pdMS_TO_TICKS(100));
+        if (bytes_read > 0) {
+            total_read += bytes_read;
+            at_response_buffer[total_read] = '\0';
+
+            if (strstr(at_response_buffer, "OK")) {
+                ESP_LOGI(TAG, "RTC time set successfully");
+                result = ESP_OK;
+                break;
+            } else if (strstr(at_response_buffer, "ERROR")) {
+                ESP_LOGE(TAG, "Failed to set RTC time");
+                break;
+            }
+        }
+    }
+
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "RTC set timeout or error. Response: %s", at_response_buffer);
+    }
+
+    xSemaphoreGive(modem_state.uart_mutex);
+    return result;
+}
+
+esp_err_t sim7670g_get_rtc_time(sim7670g_time_t *time_info)
+{
+    // This is the same as get_network_time since AT+CCLK? returns current RTC time
+    return sim7670g_get_network_time(time_info);
+}
+
+esp_err_t sim7670g_sync_time_from_network(void)
+{
+    ESP_LOGI(TAG, "Synchronizing RTC with network time...");
+
+    sim7670g_time_t network_time;
+    esp_err_t result = sim7670g_get_network_time(&network_time);
+
+    if (result == ESP_OK) {
+        result = sim7670g_set_rtc_time(&network_time);
+        if (result == ESP_OK) {
+            ESP_LOGI(TAG, "✅ Time synchronization successful");
+        } else {
+            ESP_LOGE(TAG, "❌ Failed to set RTC time");
+        }
+    } else {
+        ESP_LOGE(TAG, "❌ Failed to get network time");
+    }
+
+    return result;
+}
+
+time_t sim7670g_time_to_unix(const sim7670g_time_t *sim_time)
+{
+    struct tm tm_info = {0};
+
+    tm_info.tm_year = sim_time->year - 1900;  // tm_year is years since 1900
+    tm_info.tm_mon = sim_time->month - 1;     // tm_mon is 0-11
+    tm_info.tm_mday = sim_time->day;
+    tm_info.tm_hour = sim_time->hour;
+    tm_info.tm_min = sim_time->minute;
+    tm_info.tm_sec = sim_time->second;
+    tm_info.tm_isdst = -1;  // Let mktime determine DST
+
+    time_t timestamp = mktime(&tm_info);
+
+    // Adjust for timezone (timezone_quarters is in quarters of an hour)
+    timestamp -= (sim_time->timezone_quarters * 15 * 60);
+
+    return timestamp;
+}
+
+void unix_to_sim7670g_time(time_t unix_time, sim7670g_time_t *sim_time)
+{
+    struct tm *tm_info = gmtime(&unix_time);
+
+    sim_time->year = tm_info->tm_year + 1900;
+    sim_time->month = tm_info->tm_mon + 1;
+    sim_time->day = tm_info->tm_mday;
+    sim_time->hour = tm_info->tm_hour;
+    sim_time->minute = tm_info->tm_min;
+    sim_time->second = tm_info->tm_sec;
+    sim_time->timezone_quarters = 0;  // UTC
+}
+
+esp_err_t sim7670g_get_time_string(char *buffer, size_t buffer_size, const char *format)
+{
+    if (!buffer || buffer_size == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    sim7670g_time_t current_time;
+    esp_err_t result = sim7670g_get_rtc_time(&current_time);
+
+    if (result == ESP_OK) {
+        time_t unix_time = sim7670g_time_to_unix(&current_time);
+        struct tm *tm_info = localtime(&unix_time);
+
+        if (format == NULL) {
+            format = "%Y-%m-%d %H:%M:%S";  // Default format
+        }
+
+        size_t len = strftime(buffer, buffer_size, format, tm_info);
+        if (len == 0) {
+            ESP_LOGE(TAG, "Failed to format time string");
+            return ESP_FAIL;
+        }
+    }
+
+    return result;
 }
