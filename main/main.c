@@ -302,37 +302,7 @@ static void websocket_task(void *pvParameters)
     }
 
     // Main WebSocket processing loop
-//    int message_counter = 0;
     while (1) {
-/*
-        // Process WebSocket events
-        websocket_client_process();
-
-        // Send periodic data every 30 seconds
-        static uint64_t last_periodic_message = 0;
-        uint64_t now = esp_timer_get_time() / 1000000; // Convert to seconds
-
-        if (websocket_client_is_connected() && (now - last_periodic_message) >= 30) {
-            // Get current modem status
-            sim7670g_status_t modem_status;
-            sim7670g_get_status(&modem_status);
-
-            char periodic_msg[400];
-            snprintf(periodic_msg, sizeof(periodic_msg), 
-                    "{\"type\":\"status\",\"counter\":%d,\"uptime\":%lld,"
-                    "\"free_heap\":%lu,\"signal_quality\":%d,\"local_ip\":\"%s\","
-                    "\"operator\":\"%s\"}", 
-                    ++message_counter, now, esp_get_free_heap_size(),
-                    modem_status.signal_quality, modem_status.local_ip,
-                    modem_status.operator_name);
-
-            prepend_friendly_timestamp(periodic_msg, sizeof(periodic_msg));
-            websocket_client_send_text(periodic_msg, 0);
-            last_periodic_message = now;
-            ESP_LOGI(TAG, "📤 Sent status message #%d", message_counter);
-        }
-        vTaskDelay(pdMS_TO_TICKS(100)); // 100ms loop
-*/
         vTaskDelete(NULL);   // Task terminates
     }
 }
@@ -376,7 +346,7 @@ static void status_task(void *pvParameters)
             ESP_LOGI(TAG, "📤 Sent status message #%d", message_counter);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10000)); // Send status data every 10 seconds
+        vTaskDelay(pdMS_TO_TICKS(100));
 
     }
 }
@@ -509,7 +479,7 @@ void app_main(void)
     xTaskCreate(websocket_task, "websocket_task", 8192, NULL, 5, NULL);
 
     // Create status task
-    xTaskCreate(status_task, "status_task", 8192, NULL, 3, NULL);
+    xTaskCreate(status_task, "status_task", 4096, NULL, 3, NULL);
 
     // Create sensor data task
     xTaskCreate(sensor_task, "sensor_task", 4096, NULL, 3, NULL);

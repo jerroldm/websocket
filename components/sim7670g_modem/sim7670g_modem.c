@@ -499,6 +499,8 @@ esp_err_t sim7670g_get_status(sim7670g_status_t *status)
         return ESP_ERR_INVALID_ARG;
     }
 
+    sim7670g_get_signal_quality();
+
     // Update current status (don't call functions that might take too long)
     memcpy(status, &modem_state.status, sizeof(sim7670g_status_t));
     return ESP_OK;
